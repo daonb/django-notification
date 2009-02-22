@@ -1,0 +1,2 @@
+{% load i18n %}
+{% blocktrans %} %(site_name)s - {{notices.count}} new notices - digested {% endblocktrans %}
