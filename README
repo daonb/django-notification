@@ -8,4 +8,6 @@ includes:
  * submission of notification messages by other apps
  * notification messages on signing in
  * notification messages via email (configurable by user)
+ * notification messages via a digest email
  * notification messages via feed
+ 

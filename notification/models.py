@@ -52,16 +52,15 @@ class NoticeType(models.Model):
         verbose_name = _("notice type")
         verbose_name_plural = _("notice types")
 
+# The higher the meduim value, the more exclusive it is - SCREEN_MEDUIM shows all notices
+# Backward incomplatible change - email used to be '1', not sure about the other values
+EMAIL_MEDIUM, DIGEST_MEDIUM, SCREEN_MEDIUM = "3", "2", "1"
 
-# if this gets updated, the create() method below needs to be as well...
 NOTICE_MEDIA = (
-    ("1", _("Email")),
+    (EMAIL_MEDIUM, _("Email")),
+    (DIGEST_MEDIUM, _("Digested Email")),
+    (SCREEN_MEDIUM, _("Screen")),
 )
-
-# how spam-sensitive is the medium
-NOTICE_MEDIA_DEFAULTS = {
-    "1": 2 # email
-}
 
 class NoticeSetting(models.Model):
     """
@@ -83,7 +82,7 @@ def get_notification_setting(user, notice_type, medium):
     try:
         return NoticeSetting.objects.get(user=user, notice_type=notice_type, medium=medium)
     except NoticeSetting.DoesNotExist:
-        default = (NOTICE_MEDIA_DEFAULTS[medium] <= notice_type.default)
+        default = int(medium) <= notice_type.default # each notice has a default medium
         setting = NoticeSetting(user=user, notice_type=notice_type, medium=medium, send=default)
         setting.save()
         return setting
@@ -231,7 +230,7 @@ def get_formatted_messages(formats, label, context):
 
 def send_now(users, label, extra_context=None, on_site=True):
     """
-    Creates a new notice.
+    Creates a new notice now and sends an email if the notice is important enough.
 
     This is intended to be how other apps create new notices.
 
@@ -243,6 +242,7 @@ def send_now(users, label, extra_context=None, on_site=True):
     You can pass in on_site=False to prevent the notice emitted from being
     displayed on the site.
     """
+    
     if extra_context is None:
         extra_context = {}
     
@@ -263,8 +263,8 @@ def send_now(users, label, extra_context=None, on_site=True):
         'full.html',
     ) # TODO make formats configurable
 
+    notices = []
     for user in users:
-        recipients = []
         # get user language for user from language store defined in
         # NOTIFICATION_LANGUAGE_MODULE setting
         try:
@@ -288,24 +288,28 @@ def send_now(users, label, extra_context=None, on_site=True):
         # get prerendered format messages
         messages = get_formatted_messages(formats, label, context)
 
-        # Strip newlines from subject
-        subject = ''.join(render_to_string('notification/email_subject.txt', {
-            'message': messages['short.txt'],
-        }, context).splitlines())
-
-        body = render_to_string('notification/email_body.txt', {
-            'message': messages['full.txt'],
-        }, context)
-
         notice = Notice.objects.create(user=user, message=messages['notice.html'],
             notice_type=notice_type, on_site=on_site)
-        if should_send(user, notice_type, "1") and user.email: # Email
-            recipients.append(user.email)
-        send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, recipients)
+        notices.append(notice)
+        
+        # Email
+        if should_send(user, notice_type, EMAIL_MEDIUM) and user.email:
+            # Strip newlines from subject
+            subject = ''.join(render_to_string('notification/email_subject.txt', {
+                'message': messages['short.txt'],
+            }, context).splitlines())
+            
+            # render body
+            body = render_to_string('notification/email_body.txt', {
+                'message': messages['full.txt'],
+            }, context)
+
+            send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [user.email])
 
     # reset environment to original language
     activate(current_language)
 
+    return notices
 def send(*args, **kwargs):
     """
     A basic interface around both queue and send_now. This honors a global
@@ -342,6 +346,7 @@ def queue(users, label, extra_context=None, on_site=True):
     for user in users:
         notices.append((user, label, extra_context, on_site))
     NoticeQueueBatch(pickled_data=pickle.dumps(notices).encode("base64")).save()
+    return notices
 
 class ObservedItemManager(models.Manager):
 
