@@ -1,5 +1,13 @@
-{% for n in notices %}
+{% load i18n %}
+<table>
+{% for type, messages in notices.items %}
 <p>
-    {{n}}
+    <h2>{{type}}({{messages|length}})</h2>
+    <ol>
+    {% for m in messages %}
+        <li>{{m.message}}
+    {% endfor %}
+    </ol>
 </p>
 {% endfor %}
+</table>

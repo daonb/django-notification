@@ -18,18 +18,21 @@ class Command(NoArgsCommand):
         # use low level SMTP object to improve performance
         smtp = SMTPConnection()
         smtp.open()
+        notices_count = 0
         for user in User.objects.filter(email__isnull=False):
-            notices = []
-            for notice in Notice.objects.notices_for(user):
+            notices = {}
+            for notice in Notice.objects.notices_for(user).order_by('-notice_type__default', 'notice_type'):
                 if should_send(user, notice.notice_type, DIGEST_MEDIUM):
-                    notices.append(notice.message)
+                    if notice.notice_type.display in notices:
+                        notices[notice.notice_type.display].append(notice)
+                    else:
+                        notices[notice.notice_type.display] = [notice]
+                    notices_count += 1
                     notice.archive()
             if notices:
-                import pdb
-                # pdb.set_trace()
                 context = Context({'notices': notices, 'user': user})
                 body =  render_to_string ('notification/digest_email_body.html', context_instance=context)
-                subject = render_to_string ('notification/digest_email_subject.txt', {'count': len(notices)}) 
+                subject = render_to_string ('notification/digest_email_subject.txt', {'count': notices_count})
                 msg = EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, [user.email])
                 msg.content_subtype = "html"  # Main content is now text/html
                 smtp._send(msg)
